@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <math.h>
+#include <omp.h>
 #include <time.h>
 
 typedef struct {
@@ -12,13 +13,14 @@ typedef struct {
 } point_t, *Point;
 
 #ifndef BATCH
-#define X_SLIDES 2
-#define Y_SLIDES 2
-#define Z_SLIDES 2
+#define X_SLIDES 10
+#define Y_SLIDES 10
+#define Z_SLIDES 12
 #endif
 
 #define NUM_POINTS X_SLIDES * Y_SLIDES * Z_SLIDES
-#define NUM_SHOTS 100.0 /* Must be a float number */
+#define NUM_SHOTS 10000.0 /* Must be a float number */
+#define FAILURE_BOUND 10000000 /* Used for kill point that failure on this number */
 #define write_result(point, mark) \
 	do { \
 		point->result = mark/NUM_SHOTS; \
@@ -45,19 +47,37 @@ bool isOnPlanes(Point, int*);
 #include "test.c"
 #else
 int main() {
+	time_t rawtime;
+  	struct tm * timeinfo;
+  	time( &rawtime );
+  	timeinfo = localtime( &rawtime );
+  	printf( "Current local time and date: %s\n", asctime (timeinfo) );
+
 	//Get a list of points
 	int num_of_pts;
 	Point* list = get_points(&num_of_pts);
 	srand(time(NULL));
+	#pragma omp parallel for
 	for (int i = 0; i < num_of_pts; i++) {
 		//DO hard work
 		int mark = 0;
 		for (int j = 0; j < NUM_SHOTS; j++) {
+			int failure = 0;
 			Point copy = copy_point(list[i]);
-			printf("Start %d:%d shots\n", i, j);
+			printf("Start %d:%d:%d shots... ", omp_get_thread_num(), i, j);
 			while(1) {
+				if (failure >= FAILURE_BOUND) {
+					printf("Failure.\n");
+					break;
+				}
 				double r = find_min_radius(copy);
-				if (r <= 0+1e-6) return -1;
+				if (r <= 1e-12) { //We start this shot again
+					failure++;
+					copy->x = list[i]->x;
+					copy->y = list[i]->y;
+					copy->z = list[i]->z;
+					continue;
+				}
 				move_to_next(copy, r);
 				bounce_inside(copy);
 				if (isOnPlanes(copy, &mark)) break;
@@ -121,10 +141,18 @@ void destroy_points(Point* list, int num_of_pts) {
 }
 
 void print_points(Point* list, int num_of_pts) {
+	FILE* fd = fopen("points.txt", "w");
+	time_t rawtime;
+        struct tm * timeinfo;
+  	time ( &rawtime );
+  	timeinfo = localtime ( &rawtime );
+ 	fprintf (fd, "Current local time and date: %s\n", asctime (timeinfo) );
+	fprintf(fd, "Totally %d points\n", num_of_pts);
 	for (int i = 0; i < num_of_pts; i++) {
 		Point pt = list[i];
-		printf("%d: %1.6lf, %1.6lf, %1.6lf, %1.6lf\n", i+1, pt->x, pt->y, pt->z, pt->result);
+		fprintf(fd, "%1.6lf, %1.6lf, %1.6lf, %1.6lf\n", pt->x, pt->y, pt->z, pt->result);
 	}
+	fclose(fd);
 }
 
 
@@ -167,7 +195,7 @@ double find_min_radius(Point pt) {
 	}
 	double r = 0;
 	sqrt_min(l1, l2, l3);
-	printf("Find radius %1.6lf\n", r);
+	//printf("Find radius %1.6lf\n", r);
 	return r;
 }
 
@@ -192,7 +220,7 @@ void bounce_inside(Point pt) {
 	if (pt->z < 0) pt->z = -(pt->z);
 	else if (pt->z > 2) pt->z = 4 - (pt->z);
 
-	printf("Move to %.6lf, %.6lf, %.6lf\n", pt->x, pt->y, pt->z);
+	//printf("Move to %.6lf, %.6lf, %.6lf\n", pt->x, pt->y, pt->z);
 }
 
 bool isOnPlanes(Point pt, int* mark) {
