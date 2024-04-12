@@ -12,33 +12,34 @@ typedef struct {
 	double result;
 } point_t, *Point;
 
-#ifndef BATCH
-#define X_SLIDES 10
+/* slide the volumn to select points  */
+#define X_SLIDES 12
 #define Y_SLIDES 10
-#define Z_SLIDES 12
-#endif
-
+#define Z_SLIDES 10
 #define NUM_POINTS X_SLIDES * Y_SLIDES * Z_SLIDES
 #define NUM_SHOTS 10000.0 /* Must be a float number */
-#define FAILURE_BOUND 10000000 /* Used for kill point that failure on this number */
-#define write_result(point, mark) \
-	do { \
-		point->result = mark/NUM_SHOTS; \
-	} while(0)
-#define square_length(x, y) (x)*(x)+(y)*(y)
-#define sqrt_min(l1, l2, l3) \
-	do { \
-		r = l1>=l2? (l3>=l2?l2:l3) : (l3>=l1?l1:l3); \
-		r = sqrt(r); \
-	} while(0)
+#define FAILURE_RADIUS 1e-7 /* When radius less than this, it fails, we try again */
+#define FAILURE_BOUND 500 /* Used for kill point that failure on this number */
 #define PI 3.14159
 #define PRECISE 1e-6
+
+#define write_result(point, mark) \
+	do { \
+		if (mark == -1) point->result = -1; \
+		else point->result = mark/NUM_SHOTS; \
+	} while(0)
+
+#define square_length(x, y) (x)*(x)+(y)*(y)
+#define min3(result, l1, l2, l3) \
+	do { \
+		result = l1>=l2? (l3>=l2?l2:l3) : (l3>=l1?l1:l3); \
+	} while(0)
 Point create_point(double, double, double);
 Point copy_point(Point);
 Point* get_points(int*);
 void destroy_points(Point*, int);
 void print_points(Point*, int);
-double find_min_radius(Point pt);
+bool find_min_radius(Point pt, double*);
 void move_to_next(Point, double);
 void bounce_inside(Point);
 bool isOnPlanes(Point, int*);
@@ -57,21 +58,22 @@ int main() {
 	int num_of_pts;
 	Point* list = get_points(&num_of_pts);
 	srand(time(NULL));
-	#pragma omp parallel for
+	omp_set_num_threads(200);
+	#pragma omp parallel for schedule(dynamic)
 	for (int i = 0; i < num_of_pts; i++) {
 		//DO hard work
 		int mark = 0;
 		for (int j = 0; j < NUM_SHOTS; j++) {
 			int failure = 0;
 			Point copy = copy_point(list[i]);
-			printf("Start %d:%d:%d shots... ", omp_get_thread_num(), i, j);
+			//fprintf(stderr, "Start %d:%d shots... ", i, j);
 			while(1) {
 				if (failure >= FAILURE_BOUND) {
-					printf("Failure.\n");
+					//fprintf(stderr, "Failure.\n");
 					break;
 				}
-				double r = find_min_radius(copy);
-				if (r <= 1e-12) { //We start this shot again
+				double r = 0;
+				if (find_min_radius(copy, &r) == false) {
 					failure++;
 					copy->x = list[i]->x;
 					copy->y = list[i]->y;
@@ -83,11 +85,18 @@ int main() {
 				if (isOnPlanes(copy, &mark)) break;
 			}
 			free(copy);
+			if (failure >= FAILURE_BOUND) { //Kill the point
+				mark = -1;
+				break;
+			}
 		}
 		write_result(list[i], mark);
 	}
 	print_points(list, num_of_pts);
 	destroy_points(list, num_of_pts);
+	time( &rawtime );
+        timeinfo = localtime( &rawtime );
+        printf( "Finish time and date: %s\n", asctime (timeinfo) );
 	return 0;
 }
 #endif /* Switch between test and release mode */
@@ -141,22 +150,27 @@ void destroy_points(Point* list, int num_of_pts) {
 }
 
 void print_points(Point* list, int num_of_pts) {
-	FILE* fd = fopen("points.txt", "w");
+	FILE* fd = fopen("points3.txt", "w");
 	time_t rawtime;
         struct tm * timeinfo;
   	time ( &rawtime );
   	timeinfo = localtime ( &rawtime );
- 	fprintf (fd, "Current local time and date: %s\n", asctime (timeinfo) );
-	fprintf(fd, "Totally %d points\n", num_of_pts);
+	int fail_counter = 0;
 	for (int i = 0; i < num_of_pts; i++) {
 		Point pt = list[i];
+		if (list[i]->result == -1) {
+			fail_counter++;
+			continue;
+		}
 		fprintf(fd, "%1.6lf, %1.6lf, %1.6lf, %1.6lf\n", pt->x, pt->y, pt->z, pt->result);
 	}
+ 	fprintf (fd, "Current local time and date: %s\n", asctime (timeinfo) );
+	fprintf(fd, "Start with %d points, failing %d points, remaining %d points\n", num_of_pts, fail_counter, num_of_pts - fail_counter);
 	fclose(fd);
 }
 
 
-double find_min_radius(Point pt) {
+bool find_min_radius(Point pt, double* r) {
 	double l1, l2, l3;
 	double z = pt->z;
 	double x = pt->x;
@@ -193,10 +207,13 @@ double find_min_radius(Point pt) {
                         l3 = square_length(z, y);
 		}
 	}
-	double r = 0;
-	sqrt_min(l1, l2, l3);
-	//printf("Find radius %1.6lf\n", r);
-	return r;
+	double min = 0;
+	min3(min, l1, l2, l3); //minimal square of distance to lines
+	if (min <= FAILURE_RADIUS) return false;
+	min3(min, 2-z, 3-x, sqrt(min)); //minimal distance to lines and also two planes
+	*r = min;
+	//printf("Find radius %1.6lf\n", *r);
+	return true;
 }
 
 void move_to_next(Point pt, double r) {
@@ -227,13 +244,13 @@ bool isOnPlanes(Point pt, int* mark) {
 	if (pt->x <= 3 + PRECISE && pt->x >= 3 - PRECISE) {
 		(*mark)++;
 		#ifndef TEST
-		printf("Right plane\n");
+		//fprintf(stderr, "Right plane\n");
 		#endif
 		return true;
 	}
 	else if (pt->z <= 2 + PRECISE && pt->z >= 2 - PRECISE) {
 		#ifndef TEST
-		printf("Up plane\n");
+		//fprintf(stderr, "Up plane\n");
 		#endif
 		return true;
 	}
