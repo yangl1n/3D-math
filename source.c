@@ -4,7 +4,7 @@
 #include <math.h>
 #include <omp.h>
 #include <time.h>
-
+#include <string.h>
 typedef struct {
 	double x;
 	double y;
@@ -13,8 +13,8 @@ typedef struct {
 } point_t, *Point;
 
 /* slide the volumn to select points  */
-#define X_SLIDES 12
-#define Y_SLIDES 10
+#define X_SLIDES 24
+#define Y_SLIDES 5
 #define Z_SLIDES 10
 #define NUM_POINTS X_SLIDES * Y_SLIDES * Z_SLIDES
 #define NUM_SHOTS 10000.0 /* Must be a float number */
@@ -38,7 +38,7 @@ Point create_point(double, double, double);
 Point copy_point(Point);
 Point* get_points(int*);
 void destroy_points(Point*, int);
-void print_points(Point*, int);
+void print_points(Point*, int, char*, int*);
 bool find_min_radius(Point pt, double*);
 void move_to_next(Point, double);
 void bounce_inside(Point);
@@ -47,20 +47,31 @@ bool isOnPlanes(Point, int*);
 #ifdef TEST
 #include "test.c"
 #else
-int main() {
+int main(int argc, char** argv) {
+	if (argc == 1) {
+		fprintf(stderr, "Usage: ./prog parameter\n");
+		return -1;
+	}
 	time_t rawtime;
   	struct tm * timeinfo;
   	time( &rawtime );
   	timeinfo = localtime( &rawtime );
-  	printf( "Current local time and date: %s\n", asctime (timeinfo) );
-
+  	printf( "Current local time and date: %s", asctime (timeinfo) );
+	printf( "Every point has %lf shots\n", NUM_SHOTS);
 	//Get a list of points
 	int num_of_pts;
 	Point* list = get_points(&num_of_pts);
 	srand(time(NULL));
 	omp_set_num_threads(200);
+	int total_section = atoi(argv[1]);
+	int section = atoi(argv[2]);
+	int part = num_of_pts/total_section;
+	int start = section * part;
+	int end = start + part;
+	end = end>num_of_pts?num_of_pts:end;
+	printf("This job is %d to %d\n", start+1, end);
 	#pragma omp parallel for schedule(dynamic)
-	for (int i = 0; i < num_of_pts; i++) {
+	for (int i = start; i < end; i++) {
 		//DO hard work
 		int mark = 0;
 		for (int j = 0; j < NUM_SHOTS; j++) {
@@ -92,10 +103,12 @@ int main() {
 		}
 		write_result(list[i], mark);
 	}
-	print_points(list, num_of_pts);
+	int fail_count = 0;
+	print_points(list+start, end-start, argv[2], &fail_count);
 	destroy_points(list, num_of_pts);
 	time( &rawtime );
         timeinfo = localtime( &rawtime );
+	printf("Totally %d points, fails %d points.\n", end - start, fail_count);
         printf( "Finish time and date: %s\n", asctime (timeinfo) );
 	return 0;
 }
@@ -149,12 +162,11 @@ void destroy_points(Point* list, int num_of_pts) {
 	free(list);
 }
 
-void print_points(Point* list, int num_of_pts) {
-	FILE* fd = fopen("points3.txt", "w");
-	time_t rawtime;
-        struct tm * timeinfo;
-  	time ( &rawtime );
-  	timeinfo = localtime ( &rawtime );
+void print_points(Point* list, int num_of_pts, char* str, int* fail_count) {
+	char name[15] = "points";
+	strcat(name, str);
+	strcat(name, ".txt");
+	FILE* fd = fopen(name, "w");
 	int fail_counter = 0;
 	for (int i = 0; i < num_of_pts; i++) {
 		Point pt = list[i];
@@ -164,9 +176,8 @@ void print_points(Point* list, int num_of_pts) {
 		}
 		fprintf(fd, "%1.6lf, %1.6lf, %1.6lf, %1.6lf\n", pt->x, pt->y, pt->z, pt->result);
 	}
- 	fprintf (fd, "Current local time and date: %s\n", asctime (timeinfo) );
-	fprintf(fd, "Start with %d points, failing %d points, remaining %d points\n", num_of_pts, fail_counter, num_of_pts - fail_counter);
 	fclose(fd);
+	*fail_count = fail_counter;
 }
 
 
