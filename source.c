@@ -13,9 +13,9 @@ typedef struct {
 } point_t, *Point;
 
 /* slide the volumn to select points  */
-#define X_SLIDES 24
-#define Y_SLIDES 5
-#define Z_SLIDES 10
+#define X_SLIDES 12
+#define Y_SLIDES 10
+#define Z_SLIDES 20
 #define NUM_POINTS X_SLIDES * Y_SLIDES * Z_SLIDES
 #define NUM_SHOTS 10000.0 /* Must be a float number */
 #define FAILURE_RADIUS 1e-7 /* When radius less than this, it fails, we try again */
@@ -65,7 +65,7 @@ int main(int argc, char** argv) {
 	omp_set_num_threads(200);
 	int total_section = atoi(argv[1]);
 	int section = atoi(argv[2]);
-	int part = num_of_pts/total_section;
+	int part = num_of_pts/(total_section-1);
 	int start = section * part;
 	int end = start + part;
 	end = end>num_of_pts?num_of_pts:end;
@@ -228,12 +228,18 @@ bool find_min_radius(Point pt, double* r) {
 }
 
 void move_to_next(Point pt, double r) {
-	double theta = PI*rand()/(RAND_MAX);
-	double phi = 2*PI*rand()/(RAND_MAX);
-//	printf("Theta %1.6lf, phi %1.6lf\n", theta, phi);
-	pt->x += r*sin(theta)*cos(phi);
-	pt->y += r*sin(theta)*sin(phi);
-	pt->z += r*cos(theta);
+	double u1 = (double)rand()/(RAND_MAX);
+	double u2 = (double)rand()/(RAND_MAX);
+	double u3 = (double)rand()/(RAND_MAX);
+	double u4 = (double)rand()/(RAND_MAX);
+	double z1 = sqrt(-2*log(u1))*cos(2*PI*u2);
+	double z2 = sqrt(-2*log(u1))*sin(2*PI*u2);
+	double z3 = sqrt(-2*log(u3))*cos(2*PI*u4);
+	double norm = sqrt(z1*z1 + z2*z2 + z3*z3);
+	
+	pt->x += r * (z1/norm);
+	pt->y += r * (z2/norm);
+	pt->z += r * (z3/norm);
 }
 
 void bounce_inside(Point pt) {
