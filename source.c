@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
 	int num_of_pts;
 	Point* list = get_points(&num_of_pts);
 	srand(time(NULL));
-	omp_set_num_threads(200);
+//	omp_set_num_threads(100);
 	int total_section = atoi(argv[1]);
 	int section = atoi(argv[2]);
 	int part = num_of_pts/(total_section-1);
@@ -91,6 +91,7 @@ int main(int argc, char** argv) {
 					copy->z = list[i]->z;
 					continue;
 				}
+				if (r==0) exit(-1);
 				move_to_next(copy, r);
 				bounce_inside(copy);
 				if (isOnPlanes(copy, &mark)) break;
@@ -223,20 +224,20 @@ bool find_min_radius(Point pt, double* r) {
 	if (min <= FAILURE_RADIUS) return false;
 	min3(min, 2-z, 3-x, sqrt(min)); //minimal distance to lines and also two planes
 	*r = min;
-	//printf("Find radius %1.6lf\n", *r);
+	if (min==0) fprintf(stderr, "0 radius\n");
 	return true;
 }
 
 void move_to_next(Point pt, double r) {
-	double u1 = (double)rand()/(RAND_MAX);
-	double u2 = (double)rand()/(RAND_MAX);
-	double u3 = (double)rand()/(RAND_MAX);
-	double u4 = (double)rand()/(RAND_MAX);
+	double u1 = (double)(rand()+1)/(RAND_MAX);
+	double u2 = (double)(rand()+1)/(RAND_MAX);
+	double u3 = (double)(rand()+1)/(RAND_MAX);
+	double u4 = (double)(rand()+1)/(RAND_MAX);
 	double z1 = sqrt(-2*log(u1))*cos(2*PI*u2);
 	double z2 = sqrt(-2*log(u1))*sin(2*PI*u2);
 	double z3 = sqrt(-2*log(u3))*cos(2*PI*u4);
 	double norm = sqrt(z1*z1 + z2*z2 + z3*z3);
-	
+	if (u1<0 || u1>1 || u2<0 || u2>1 || u3<0 || u3>1) fprintf(stderr, "%lf, %lf, %lf, %lf\n", u1, u2,u3,u4);
 	pt->x += r * (z1/norm);
 	pt->y += r * (z2/norm);
 	pt->z += r * (z3/norm);
